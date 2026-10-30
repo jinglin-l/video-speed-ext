@@ -182,11 +182,15 @@
           margin: 10px; padding: 3px 6px;
           font: 600 13px/1.2 system-ui, sans-serif;
           color: #fff; background: rgba(0,0,0,.55);
-          border-radius: 5px; user-select: none; cursor: default;
+          border-radius: 5px; user-select: none; cursor: grab;
           display: inline-flex; gap: 4px; align-items: center;
           opacity: .6; transition: opacity .15s;
+          /* Without this, a touch drag would scroll the page instead of
+             moving the badge. */
+          touch-action: none;
         }
         .badge:hover { opacity: 1; }
+        .badge.dragging { cursor: grabbing; opacity: 1; }
         /* Buttons only show on hover, like the original: unobtrusive by
            default, clickable when you go looking for them. */
         button {
@@ -222,6 +226,8 @@
       });
     }
 
+    enableDragging(host, badge);
+
     video.parentElement.insertBefore(host, video);
     tracked.set(video, { host, label: root.querySelector(".label") });
 
@@ -237,6 +243,73 @@
     video.addEventListener("ratechange", () => updateLabel(video));
 
     applySpeed(video);
+  }
+
+  /**
+   * Lets the user drag a badge out of the way when it covers something they
+   * need to click (a site's own button in the video's top-left corner, say).
+   *
+   * How it moves: a CSS `transform: translate()` on the host, layered on top
+   * of the static-position trick described in `attach()`. Changing top/left
+   * instead would pin the badge to the nearest positioned ancestor and bring
+   * back the page-corner stacking bug. A transform is relative to wherever the
+   * badge already sits, so the badge still follows its video, just offset.
+   *
+   * Grab anywhere on the badge except its buttons. Drags that start on a
+   * button are ignored so the buttons keep working as plain clicks.
+   * Double-click the badge to put it back in the corner.
+   *
+   * The offset lives in a closure variable, per badge, and is forgotten on
+   * reload, same as the speed (persisting it would need `storage`).
+   */
+  function enableDragging(host, badge) {
+    let offsetX = 0;
+    let offsetY = 0;
+    // Set while a drag is in progress: where the pointer went down, and the
+    // offset at that moment. Each move computes the new offset from these,
+    // not by accumulating per-event deltas, so no rounding drift builds up.
+    let start = null;
+
+    const place = () => {
+      host.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+    };
+
+    badge.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest?.("button")) return;
+      start = { x: e.clientX, y: e.clientY, offsetX, offsetY };
+      // Pointer capture keeps the moves coming to the badge even when the
+      // cursor outruns it, or slides over an iframe that would otherwise
+      // swallow them.
+      badge.setPointerCapture(e.pointerId);
+      badge.classList.add("dragging");
+      // Stops the browser from starting a text selection or native drag.
+      e.preventDefault();
+    });
+
+    badge.addEventListener("pointermove", (e) => {
+      if (!start) return;
+      offsetX = start.offsetX + (e.clientX - start.x);
+      offsetY = start.offsetY + (e.clientY - start.y);
+      place();
+      // Players like YouTube show or hide their controls on mouse movement.
+      // While dragging, the movement belongs to the badge.
+      e.stopPropagation();
+    });
+
+    // pointercancel fires when the browser takes the pointer away, e.g. a
+    // touch turning into a system gesture. Treat it like a normal release.
+    const end = () => {
+      start = null;
+      badge.classList.remove("dragging");
+    };
+    badge.addEventListener("pointerup", end);
+    badge.addEventListener("pointercancel", end);
+
+    badge.addEventListener("dblclick", (e) => {
+      if (e.target.closest?.("button")) return; // fast clicks on − / + aren't a reset
+      offsetX = offsetY = 0;
+      place();
+    });
   }
 
   // Initial scan, then watch for videos added later. One MutationObserver on

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Private Video Speed",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Minimal, offline clone of Video Speed Controller. No permissions, no storage, no network.",
   "browser_specific_settings": {
     "gecko": {
